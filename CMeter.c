@@ -1,4 +1,4 @@
-/* CMeterG2211: The MSP430G2211 includes a comparator, which can be used to
+/* CMeter: The MSP430G2452 includes a comparator, which can be used to
  * determine capacitance in an RC circuit when coupled with TimerA.  The
  * comparator connects to the 1/4 Vcc reference and stops the timer when the
  * threshold is reached.  The time value determines the capacitance to an
@@ -15,7 +15,7 @@
  * in this project.
  */
  
-#include <msp430g2211.h>
+#include <msp430.h>
  
 #define LED1    BIT0
 #define LED2    BIT6
