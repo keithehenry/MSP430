@@ -44,7 +44,7 @@
  but then its ISR would have to either turn off the Timer or squirrel away the 
  timer values while interrupts were disabled. Letting the Timer ISR deal with the
  Timer interrupts seemed like the better choice. I chose to leave the comparator 
- running so I could view the output on P1.7, but one could also turn in off most
+ running so I could view the output on P1.7, but one could also turn it off most
  of the time to save power.
  */
  
