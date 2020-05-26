@@ -5,120 +5,140 @@
  * accuracy determined primarily by the accuracy to which the resistance is
  * known.  Requires a calibrated clock for accurate timing.
  * 
- * This version does not include serial communication to a computer for reading
- * out the value, and so uses the LEDs on P1.0 and P1.6 to signal when a reading 
- * has been completed.  The user can then pause the programming in the CCS 
- * debugger and determine the value from the registers.  Resitor is connected
- * between P1.5 and P1.1; Capacitor is connected between P1.1 and ground.
+ * The user can set a breakpoint with the debugger and view the registers.
+ *
+ * The external circuit is:
+ * P1.5 is connected to a resistor. The resistor and capacitor are connected
+ * and also connected to P1.1. The other terminal of the capacitor is connected 
+ * to ground.
+ *
+ * The equation for calculating C is:
+ *   C = t / (R * ln(4));
+ * An R of 47K is interesting as each overflow ("timerhi") represents:
+ *   C = 2**16 us / (47000 Ohms * ln(4) = ~1 uF
+ * At this rate though a 330uF capacitor takes 22s to measure.
  * 
- * Note that the jumper for the TXD on the LaunchPad must be removed to use P1.1
+ * NOTE that the jumper for the TXD on the LaunchPad MUST BE REMOVED to use P1.1
  * in this project.
+ *
+ * The MSP430G2452 has two I/O ports, one "Comparator_A+" (aka Comparator A) and 
+ *  one "Timer_A" (aka Timer0_A3).
+ * Port1 will be used for red and green LEDs, sensing the button, charging/discharging
+ *  the RC network, sensing the voltage levels, and debugging the comparator.
+ * Comparator_A+ is used for sensing analog inputs. It will be used to trigger 
+ *  an event when the capacitor voltage reaches 1/4 Vcc during discharge.
+ * Timer_A counts the duration of the discharge.
+ 
+ Scheme:
+ - Set charge/discharge pin to charge.
+ - Wait for button press in LPM.
+ - Set charge/discharge pin to discharge.
+ - Set Timer to time and Comparator to compare.
+ - Wait for results in LPM.
+ - Use debugger to read {timerhi, TAR} and compute capacitance!
+ - 
+ Notes:
+ There are lots of ways to do this. The many choices resulted in settling for
+ my favorite: conserving code space and RAM. Letting the comparator interrupt
+ (without involving the Timer capture feature) would have been a good choice 
+ but then its ISR would have to either turn off the Timer or squirrel away the 
+ timer values while interrupts were disabled. Letting the Timer ISR deal with the
+ Timer interrupts seemed like the better choice. I chose to leave the comparator 
+ running so I could view the output on P1.7, but one could also turn in off most
+ of the time to save power.
  */
  
 #include <msp430.h>
  
-#define LED1    BIT0
-#define LED2    BIT6
-#define BTN1    BIT3
-#define VCTL    BIT5
-#define AIN1	BIT1
+// Pre-defined Launchpad pins
+#define LED1    BIT0    // RED LED out
+#define LED2    BIT6    // GRN LED out
+#define BTN1    BIT3    // Left-Button in
+#define AIN1	BIT1    // For TimerA comparitor in. REMOVE TXD JUMPER on Launchpad.
+// Free pins
+#define VCTL    BIT5    // For Voltage Control out
+#define CAO     BIT7    // Monitor Comparator
  
 /*  Global Variables  */
-unsigned int overflows;
- 
-/*  Function Definitions  */
-void P1init(void);
-void CAinit(void);
-void TAinit(void);
+unsigned int timerhi;
  
 void main(void) {
-
     WDTCTL = WDTPW + WDTHOLD;   // disable watchdog
 
+    /* Eliminate linker warnings for unused port. */
+    P2DIR = 0xFF;
+    P2OUT = 0x00;
+
+    /* Set DCO to calibrated 1 MHz clock */
     BCSCTL1 = CALBC1_1MHZ;
-    DCOCTL = CALDCO_1MHZ;       // Calibrated 1 MHz clock
+    DCOCTL = CALDCO_1MHZ;
 
-    for(;;) {           // trap
-        P1init();
-        CAinit();
-        TAinit(); 
-        _BIS_SR(LPM0_bits + GIE);
-        
-        overflows = 0;      // reset overflow counter
-        P1OUT = LED1;       // clear LED2, set LED1 (red) to indicate measuring
-        TACTL |= MC_2;      // start timer, sets TA0.0 at overflow.
-        while (overflows < 10);
+    /* Port 1 Config */
+    // P1.7 CAO, out, connected to CAOUT (Comparator_A+ output) for debug
+    // P1.5 VCTL, out, RC voltage control
+    // P1.3 BTN1, in, button. (OUT and REN together select pullup on input)
+    // P1.3 also interrupts
+    // P1.1 AIN1, in, Cap voltage - selected by Comparator module
+    P1OUT = CAO | LED2 | VCTL | BTN1;   // Observe CAOUT, GRN ON, charge RC network, pull BTN1 HI
+    P1DIR = ~(BTN1 | AIN1);             // All outputs except P1.3 and P1.1.
+    P1SEL = CAO;                        // Selects CAOUT to P1.7
+    P1SEL2= 0;                          //  cont.
+    P1REN = BTN1;                       // BTN1 requires a pullup. R34 not populated.
+    P1IES = BTN1;                       // Interrupt Edge Select =< high to low
+                                        // NOTE: P1IE not yet enabled
+    // Comparator A+ Config
+    // The comparator output is used to capture the timer and the timer interrupts
+    CACTL1 = CARSEL | CAREF_1 | CAON;   // - pin, 0.25 Vcc, ON, (no interrupt)
+    CACTL2 = P2CA4 | CAF;               // Input CA1 on + pin, filter output.
     
-        CACTL1 |= CAON;     // Turn on comparator.    
-        TACCTL0 = OUTMOD_5 + CCIE; // start discharge on next overflow.
-        TACCTL1 |= CM_2;    // start TA1 capture on falling edge.
-        overflows = -1;     // reset overflow counter (accounting for overflow
-                            // to start discharge).
+    for(;;) {
+        /* Arm Button interrupt and wait */
+        P1IFG = 0;                  // Clear Interrupt FlaGs before enabling
+        P1IE = BTN1;                // Interrupt Enable for BTN1 only
+        _BIS_SR(LPM0_bits + GIE);   // Wait for Button interrupt
         
-        _BIS_SR(LPM0_bits + GIE);
-
-    } 	
-    
+        /* Start discharge, clear timer, and wait */
+        P1OUT ^= (LED2 | LED1);     // GRN OFF; RED toggle - measuring
+        timerhi = 0;                // Clear hi-order timer register
+        
+        // Start RC network discharge, ie GO!!!!
+        P1OUT &= ~VCTL;
+        
+        // Timer A:
+        // Use SMCLK, no division, continuous mode, clear TAR, interrupt on overflow
+        TACTL = TASSEL_2 | ID_0 | MC_2 | TACLR | TAIE;
+        // Timer Capture/Compare Reg 1:
+        // Falling edge, CAOUT for input, synchronize, capture, enable interrupt
+        TACCTL1 = CM_2 | CCIS_1 | SCS | CAP + CCIE;
+        _BIS_SR(LPM0_bits);         // Wait for Comparator interrupt
+        
+        P1OUT |= VCTL | LED2;       // Charge again, signal GRN waiting for button
+        /* Record values - set break here */
+        // {timerhi, TAR} contains 32-bit count
+        __no_operation();
+        __no_operation();
+    }
 } // main
  
-void P1init(void) {
-    P1OUT = LED2;    // default LED2 (green) on to indicate ready.
-    P1DIR = LED1 + LED2 + VCTL; // output on P1.0 and P1.6 for LEDs, P1.5 for 
-                                // voltage control on the RC circuit.
-    P1SEL = VCTL;    // Set P1.5 to TA0.0 output, controls charge/discharge
-
-    P1IES = BTN1;   // falling edge for pulled-up button
-    P1IFG &= ~BTN1; // clear interrupt flag before enabling
-    P1IE = BTN1;    // enable interrupt for BTN1
-  
-} // P1init
- 
-void CAinit(void) {
-    CACTL1 = CARSEL + CAREF_1;   // 0.25 Vcc ref on - pin.
-    CACTL2 = P2CA4 + CAF;       // Input CA1 on + pin, filter output.
-    CAPD = AIN1;                // disable digital I/O on P1.7 (technically
-                                // this step is redundant)
-} // CAinit
- 
-void TAinit(void) {
-    TACTL = TASSEL_2 + ID_0 + MC_0;     // Use SMCLK (1 MHz Calibrated), no division,
-                                        // stopped mode
-    TACCTL0 = OUTMOD_1 + CCIE;          // TA0 sets VCTL at TACCR0
-    TACCTL1 = CCIS_1 + SCS + CAP + CCIE;       // Use CAOUT for input, synchronize, set to 
-                                        // capture mode, enable interrupt for TA1.
-                                        // NOTE: Capturing mode not started.
-} // TAinit
-
- 
 /*  Interrupt Service Routines  */
+// Port1 interrupt is enabled for button push only
 #pragma vector = PORT1_VECTOR
 __interrupt void P1_ISR(void) {
-    switch(P1IFG & BIT3) {
-        case BIT3:
-            P1IFG &= ~BIT3;  // clear the interrupt flag
-            if ((P1OUT & LED1)==LED1)
-                return; // taking sample, do nothing if button is pressed
-            else {
-                __low_power_mode_off_on_exit(); // button pressed; continue program
-                return;
-            }
-        default:
-            P1IFG = 0;  // clear any errant flags
-            return;
-    }
+    P1IE = 0;                       // Inhibit future P1 interrupts (until next time)
+    __low_power_mode_off_on_exit(); // Button pressed; continue main program
 } // P1_ISR
     
 
-#pragma vector = TIMERA0_VECTOR
-__interrupt void TA0_ISR(void) {
-    overflows++;    // TA0 interrupt means TA has seen 2^16 counts without CA trigger.
-                    // rollover to 0 on TAR, so mark overflow.
+// Timer_A can interrupt for capture, triggered by the comparator, 
+//  or if it overflows. Captures disables future interrupts and exits LPM,
+//  whereas Timer overflows just keep counting.
+#pragma vector = TIMER0_A1_VECTOR
+__interrupt void TA0_ISR(void) {        // Reading TAIV clears highest priority int
+    if (TAIV == 2) {                    // If Capture:
+        TACTL = 0;                      //  Turn off Timer A interrupt
+        TACCTL1 = 0;                    //  Turn off Capture interrupt
+        __low_power_mode_off_on_exit(); //  Continue main program
+    } else {                            // Timer A overflow
+        timerhi++;                      //  Record overflow and keep counting
+    }
 } // TA0_ISR
-
-#pragma vector = TIMERA1_VECTOR
-__interrupt void TA1_ISR(void) {
-    TACCTL1 &= ~(CM_2 + CCIFG); // Stop TA1 captures, clear interrupt flag.
-    TACTL &= ~MC_2;     // turn off TA.
-    P1OUT = LED2;       // Done measuring, switch to green led.
-    __low_power_mode_off_on_exit();    // continue program
-} // TA1_ISR
