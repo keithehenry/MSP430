@@ -52,7 +52,7 @@ const char sine[32] = {
 
 void main(void)
 {
-    // Watchdog timer and clock
+    // Watchdog timer
     WDTCTL = WDTPW + WDTHOLD;
 
     // DCO = 16MHz, MCLK = DCO; SMCLK = DCO/2;
