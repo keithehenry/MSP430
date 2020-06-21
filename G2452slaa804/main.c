@@ -67,7 +67,6 @@ void main(void)
 
     // Initialize Timer
     TA0CCTL0 = CCIE;                               // CCR0 interrupt enabled
-    TA0CCTL1 = OUTMOD_7;                           // CCR1 Output Mode reset/set
     TA0CCTL2 = OUTMOD_7;                           // CCR2 Output Mode reset/set
     TA0CCR0 = 256;                                 // Set PWM period to 256 clock ticks
     TA0CCR2 = sine[0];                             // Load 1st sine sample
@@ -87,6 +86,6 @@ __interrupt void TIMER0_A0_ISR(void)
 #endif
 {
     counter = (counter + 1) & 0x1F;
-    TA0CCR2 = sine[counter];                 // Load value for next duty cycle
+    TA0CCR2 = sine[counter];                     // Load value for next duty cycle
 }
 
