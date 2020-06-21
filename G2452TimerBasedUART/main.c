@@ -34,8 +34,18 @@
 //  Built with CCE Version: 3.1 Build 3.2.3.6.4
 //******************************************************************************
 
-#define RXD       0x02                      // RXD on P1.1
-#define TXD       0x04                      // TXD on P1.2
+// KEH 2020-06-21:
+// IMPORTANT:
+//   For this code, LaunchPad jumpers are in HW-UART mode. Strange but true!
+// Required:
+//   Changed include file and vector syntax for MSP430G2452.
+//   Declared all ISR variables as volatile.
+//   Added missing P1DIR for Red LED (and altered code to include Grn LED).
+// Additional cosmetic changes and these comments.
+// My system and/or LaunchPad G2 (original) only worked up to 9600 baud. Not sure why.
+
+#define RXD       BIT1                      // RXD on P1.1
+#define TXD       BIT2                      // TXD on P1.2
 
 //   Conditions for 4800 Baud SW UART, SMCLK = 16MHz
 // #define Bitime50 1666                       // ~50% bit length
@@ -44,10 +54,10 @@
 // #define Bitime   3333                       // 16MHz / 4800 Baud = 3333
 
 //   Conditions for 9600 Baud SW UART, SMCLK = 16MHz
-// #define Bitime50 833                        // ~50% bit length
-// #define Bitime80 1333                       // ~ 80% bit length
-// #define Bitime99 1650                       // ~ 99% bit length
-// #define Bitime   1666                       // 16MHz / 9600 Baud = 1667
+#define Bitime50 833                        // ~50% bit length
+#define Bitime80 1333                       // ~ 80% bit length
+#define Bitime99 1650                       // ~ 99% bit length
+#define Bitime   1666                       // 16MHz / 9600 Baud = 1667
 
 //   Conditions for 19200 Baud SW UART, SMCLK = 16MHz
 // #define Bitime50 416                        // ~50% bit length
@@ -56,34 +66,33 @@
 // #define Bitime   833                        // 16MHz / 19200 Baud = 833
 
 //   Conditions for 38400 Baud SW UART, SMCLK = 16MHz
-#define Bitime50 208                        // ~ 50% bit length
-#define Bitime80 333                        // ~ 80% bit length
-#define Bitime99 412                        // ~ 99% bit length
-#define Bitime   416                        // 16MHz / 38400 Baud = 416
+// #define Bitime50 208                        // ~ 50% bit length
+// #define Bitime80 333                        // ~ 80% bit length
+// #define Bitime99 412                        // ~ 99% bit length
+// #define Bitime   416                        // 16MHz / 38400 Baud = 416
 
-#define LedPOUT P1OUT
-#define LedPDIR P1DIR
-#define LedBIT  BIT0                        // P1.0 is LED
+#define LedRED  BIT0                        // P1.1 is Red LED
+#define LedGRN  BIT6                        // P1.6 is Grn LED
 
-unsigned int RXTempData;
-unsigned int TXTempData;
-unsigned char RXData;
 unsigned char TXData;
-unsigned char RXBitCnt;
-unsigned char TXBitCnt;
-unsigned char RXUARTDataValid;
-unsigned char RXUARTOverrun;
+volatile unsigned int RXTempData;
+volatile unsigned int TXTempData;
+volatile unsigned char RXData;
+volatile unsigned char RXBitCnt;
+volatile unsigned char TXBitCnt;
+volatile unsigned char RXUARTDataValid;
+volatile unsigned char RXUARTOverrun;
 
 void TX_UART (void);
 void RX_UART_Start (void);
 
-#include  <msp430x20x3.h>
+#include  <msp430.h>
 
 void main (void)
 {
   WDTCTL = WDTPW + WDTHOLD;                 // Stop watchdog timer
 
-//  Initialize Software UART with Timer_A2
+//  Initialize Timer for Software UART
   TACCTL1 = OUT;                            // TXD Idle as '1'
   TACTL = TASSEL_2 + MC_2;                  // SMCLK, continuous mode
   P1SEL = TXD + RXD;                        // Configure I/Os for UART
@@ -91,19 +100,20 @@ void main (void)
   RXUARTDataValid = 0;                      // No char yet received
   RXUARTOverrun = 0;                        // No RX buffer overrun yet
 
+  P1DIR |= LedGRN | LedRED;                 // Set LEDs to Outputs
+
   __delay_cycles(40000);                    // Time for VCC to rise to 3.3V
   if ((CALDCO_16MHZ == 0xFF) || (CALBC1_16MHZ == 0xFF))
   {
     while(1)                                // Blink LED if calibration data
     {                                       // missing
-      LedPOUT ^= LedBIT;                    // Toggle LED
+      P1OUT ^= LedRED;                      // Toggle LED
       __delay_cycles(60000);
     }
   }
+
   DCOCTL = CALDCO_16MHZ;                    // DCO = 16MHz calibrated
   BCSCTL1 = CALBC1_16MHZ;                   // DCO = 16MHz calibrated
-
-  __bis_SR_register(GIE);                   // Enable Inteerupts GIE
 
 // Mainloop
   RX_UART_Start();                          // UART ready to RX one Byte
@@ -112,6 +122,8 @@ void main (void)
     __bis_SR_register(LPM0_bits + GIE);     // LPM0: keep DCO running
     if (RXUARTDataValid)
     {
+      P1OUT ^= LedGRN;                    // Each byte received toggle Grn LED
+
       RXUARTDataValid = 0;                // RX Data has been read
       RXUARTOverrun = 0;                  // reset receive overrun flag
       TXData = RXData;
@@ -143,8 +155,12 @@ void RX_UART_Start (void)
 
 // =============================================================================
 // Timer A0 interrupt service routine - UART RX
-#pragma vector=TIMERA0_VECTOR
-__interrupt void Timer_A0_ISR (void)
+#if defined(__TI_COMPILER_VERSION__)
+  #pragma vector=TIMER0_A0_VECTOR
+  __interrupt void Timer_A0_ISR (void)
+#else
+  void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) TIMER_A0_ISR (void)
+#endif
 {
   TACCR0 += Bitime;                         // Add Offset to CCR0
 
@@ -157,12 +173,13 @@ __interrupt void Timer_A0_ISR (void)
   {
     RXTempData = RXTempData >> 1;
     if (TACCTL0 & SCCI)                     // Get bit waiting in receive latch
-    RXTempData |= 0x80;
+      RXTempData |= 0x80;
     RXBitCnt --;                            // All bits RXed?
     if ( RXBitCnt == 0)
     {
       RXData = (char) RXTempData;
-      if (RXUARTDataValid) RXUARTOverrun = 1;
+      if (RXUARTDataValid)
+	RXUARTOverrun = 1;
       RXUARTDataValid = 1;                  // RXData is valid
       RXBitCnt = 8;                         // Re-Load Bit counter for next RX char
       TACCTL0 = SCS + OUTMOD0 + CM1 + CAP + CCIE; // Sync, Neg Edge, Cap
@@ -176,8 +193,12 @@ __interrupt void Timer_A0_ISR (void)
 
 // =============================================================================
 // Timer A1 interrupt service routine - UART TX
-#pragma vector=TIMERA1_VECTOR
-__interrupt void Timer_A1_ISR (void)
+#if defined(__TI_COMPILER_VERSION__)
+  #pragma vector=TIMER0_A1_VECTOR
+  __interrupt void Timer_A1_ISR (void)
+#else
+  void __attribute__ ((interrupt(TIMER0_A1_VECTOR))) TIMER_A1_ISR (void)
+#endif
 {
   switch (__even_in_range(TAIV, 10))        // Use calculated jump table branching
   {
