@@ -43,7 +43,7 @@
 //   Added missing P1DIR for Red LED (and altered code to include Grn LED).
 // Additional cosmetic changes and these comments.
 // My system and/or LaunchPad G2 (original) only worked up to 9600 baud. Not sure why.
-// Revised overrun detection
+// Revised RXUARTDataValid and overrun detection
 
 #define RXD       BIT1                      // RXD on P1.1
 #define TXD       BIT2                      // TXD on P1.2
@@ -112,7 +112,6 @@ void main (void)
       __delay_cycles(60000);
     }
   }
-
   DCOCTL = CALDCO_16MHZ;                    // DCO = 16MHz calibrated
   BCSCTL1 = CALBC1_16MHZ;                   // DCO = 16MHz calibrated
 
@@ -121,14 +120,11 @@ void main (void)
   while (1)
   {
     __bis_SR_register(LPM0_bits + GIE);     // LPM0: keep DCO running
-    if (RXUARTDataValid)
-    {
-      P1OUT ^= LedGRN;                    // Each byte received toggles Grn LED
+    P1OUT ^= LedGRN;                        // Each byte received toggles Grn LED
 
-      TXData = RXData;                    // Send RX data to TX
-      RXUARTDataValid = 0;                // RX Data has been read
-      TX_UART();                          // TX Back RXed Byte Received
-    }
+    TXData = RXData;                        // Send RX data to TX
+    RXUARTDataValid = 0;                    // RX Data has been read
+    TX_UART();                              // TX Back RXed Byte Received
   }
 }
 
