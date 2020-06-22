@@ -43,6 +43,7 @@
 //   Added missing P1DIR for Red LED (and altered code to include Grn LED).
 // Additional cosmetic changes and these comments.
 // My system and/or LaunchPad G2 (original) only worked up to 9600 baud. Not sure why.
+// Revised overrun detection
 
 #define RXD       BIT1                      // RXD on P1.1
 #define TXD       BIT2                      // TXD on P1.2
@@ -81,7 +82,6 @@ volatile unsigned char RXData;
 volatile unsigned char RXBitCnt;
 volatile unsigned char TXBitCnt;
 volatile unsigned char RXUARTDataValid;
-volatile unsigned char RXUARTOverrun;
 
 void TX_UART (void);
 void RX_UART_Start (void);
@@ -98,10 +98,11 @@ void main (void)
   P1SEL = TXD + RXD;                        // Configure I/Os for UART
   P1DIR = TXD;                              // Configure I/Os for UART
   RXUARTDataValid = 0;                      // No char yet received
-  RXUARTOverrun = 0;                        // No RX buffer overrun yet
 
   P1DIR |= LedGRN | LedRED;                 // Set LEDs to Outputs
-
+  P1OUT &= ~(LedGRN | LedRED);              // And turn them off
+  
+  // Borrowed code. May not be necessary.
   __delay_cycles(40000);                    // Time for VCC to rise to 3.3V
   if ((CALDCO_16MHZ == 0xFF) || (CALBC1_16MHZ == 0xFF))
   {
@@ -122,11 +123,10 @@ void main (void)
     __bis_SR_register(LPM0_bits + GIE);     // LPM0: keep DCO running
     if (RXUARTDataValid)
     {
-      P1OUT ^= LedGRN;                    // Each byte received toggle Grn LED
+      P1OUT ^= LedGRN;                    // Each byte received toggles Grn LED
 
+      TXData = RXData;                    // Send RX data to TX
       RXUARTDataValid = 0;                // RX Data has been read
-      RXUARTOverrun = 0;                  // reset receive overrun flag
-      TXData = RXData;
       TX_UART();                          // TX Back RXed Byte Received
     }
   }
@@ -179,13 +179,14 @@ void RX_UART_Start (void)
     {
       RXData = (char) RXTempData;
       if (RXUARTDataValid)
-	RXUARTOverrun = 1;
+	while (1)                           // Another byte received before the last one taken
+	  P1OUT |= LedRED;                  // Signal ERROR
+
       RXUARTDataValid = 1;                  // RXData is valid
       RXBitCnt = 8;                         // Re-Load Bit counter for next RX char
       TACCTL0 = SCS + OUTMOD0 + CM1 + CAP + CCIE; // Sync, Neg Edge, Cap
                                             // wait for next falling RX edge
                                             // which is the next start bit
-//      last bit has been received
       __bic_SR_register_on_exit(LPM4_bits); // Clear all LPM bits from SR on stack
     }
   }
