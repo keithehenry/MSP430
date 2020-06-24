@@ -7,16 +7,15 @@ try:
 # with timeout=0, read returns immediately, even if no data
 except:
     print ("Opening serial port",port,"failed")
-    print ("Hit enter to exit")
-    raw_input()
     quit()
 
-ser.flushInput()
+ser.reset_input_buffer()
 
 while (True):
     s = input("Hex byte: ")
     if s != "":
         ser.write(bytearray.fromhex(s))
+        print ("Sent:", s)
     data = ser.read(1) # look for a character from serial port
     if len(data) > 0:  # was there a byte to read?
         print (hex(ord(data)))
