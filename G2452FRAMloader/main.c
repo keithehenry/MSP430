@@ -21,8 +21,10 @@
 //   For this code, LaunchPad jumpers are in HW-UART mode. Strange but true!
 
 #include <msp430.h>
+// Debug
+#define LedRED  BIT0                        // P1.1 is Red LED
 
-//=========== UART related =========
+//================ Software UART ==================
 #define RXD       BIT1                      // RXD on P1.1 [HW-UART JUMPER SETTINGS]
 #define TXD       BIT2                      // TXD on P1.2 [HW-UART JUMPER SETTINGS]
 
@@ -32,19 +34,15 @@
 #define Bitime99 1650                       // ~ 99% bit length
 #define Bitime   1666                       // 16MHz / 9600 Baud = 1667
 
-#define LedRED  BIT0                        // P1.1 is Red LED
-
-
-volatile unsigned char RXTempData;
-volatile unsigned char TXData;
 volatile unsigned char RXData;
+volatile unsigned char RXTempData;
 volatile unsigned char RXBitCnt;
-volatile unsigned char TXBitCnt;
 volatile unsigned char RXUARTDataValid;
+volatile unsigned char TXData;
+volatile unsigned char TXBitCnt;
 
-//================ Software UART ==================
 // BEWARE: Both TX and RX require interrupts
-// Initializes UART. Sets to receive characters
+// Initializes UART. Sets to receive characters.
 void UART_Init (void)
 {
   // Initialize Timer
@@ -136,6 +134,7 @@ void FM25V40_Wrte (char SndData)
 }
 
 
+//================ MAIN ==================
 void main (void)
 {
   WDTCTL = WDTPW + WDTHOLD;                 // Stop watchdog timer
@@ -199,7 +198,7 @@ void main (void)
 }
 
 // =============================================================================
-// Timer A0 interrupt service routine - UART RX
+// Timer0 A0 interrupt service routine - UART RX
 #if defined(__TI_COMPILER_VERSION__)
   #pragma vector=TIMER0_A0_VECTOR
   __interrupt void Timer_A0_ISR (void)
@@ -235,9 +234,9 @@ void main (void)
 }
 
 // =============================================================================
-// Timer A1 interrupt service routine - UART TX
-// Last bit is a bit shorter to give time for CPU processing.???
-// For full speed echo TX should be a bit faster than RX to avoid overruns.???
+// Timer0 A1 interrupt service routine - UART TX
+// ??? "Last bit is a bit shorter to give time for CPU processing."
+// ??? "For full speed echo TX should be a bit faster than RX to avoid overruns."
 #if defined(__TI_COMPILER_VERSION__)
   #pragma vector=TIMER0_A1_VECTOR
   __interrupt void Timer_A1_ISR (void)
