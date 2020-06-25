@@ -2430,3 +2430,22 @@ def Chirp ():
     str = "02000000" + bytes(chirp).hex()
     FTxfr ("06", 0)
     FTxfr (str, 0)
+
+def MaxMinChirp ():
+    import wave
+    ifile = wave.open("chirp_8kHz.wav", 'rb')
+    nframes = ifile.getnframes()
+    chirp = ifile.readframes(nframes)
+    ifile.close()
+
+    cmax = 0
+    cmin = 256
+    for i in range (nframes):
+        if (max(cmax, chirp[i])) > cmax:
+            print ("max:", hex(cmax))
+        cmax = max(cmax, chirp[i])
+        if (min(cmin, chirp[i])) < cmin:
+            print ("min:", hex(cmin))
+        cmin = min(cmin, chirp[i])
+    print (hex(cmax), hex(cmin))
+    
