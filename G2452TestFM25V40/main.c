@@ -48,14 +48,19 @@ int main(void)
   volatile unsigned int i;
   
   /*
-  Using MCLK and SMCLK from PUC of DCO at ~1.1MHz.
-  These two settings select VLO to ACLK. ACLK seems undefined without XTL in place?
-  Selecting ACLK <= VCO also turns of the LFXT1 oscillator, saving power.
-  VLO is typically 12kHz, 4 min, 20 max.
-  POR and/or PUC initialize all the Basic Clock Module+ Registers. DIVAx <= 0.
+  POR (PowerOnReset) and PUC (PowerUpClear) both initialize the Basic Clock Module+ Registers.
+  MCLK and SMCLK are driven from the DCO at ~1.1MHz.
+  This code leaves these default settings.
   */
+  /*
+  POR and PUC leave ACLK running from LFXT1. With no XTL, ACLK is 0Hz.
+  The following statement selects VLO instead, turns off the LFXT1 osc, and saves power:
+  BCSCTL3 |= LFXT1S_2;                  // ACLK sourced from VLO, and disable LFXT1 osc
+  VLO is typically 12kHz, 4 min, 20 max.
+  This code doesn't use ACLK so just leaves it alone.
+  */
+
   /* Not directly related to FM25V40 */
-  BCSCTL3 |= LFXT1S_2;                  // ACLK souced from VLO, and disable LFXT1 osc
   WDTCTL = WDTPW + WDTHOLD;             // Stop watchdog timer
 
   /* Begin FM25V40 code */
@@ -74,9 +79,9 @@ int main(void)
   /* SPI mode 3 would be {USICKPH, USICKPL} <= 0b01, as F-RAM always captures on rising edge */
   
   // P1 bits 7, 6, and 5 enable; Master; and (default) hold in reset
-  USICTL0 |= USIPE7 + USIPE6 + USIPE5 + USIMST + USISWRST; // Port, SPI master
+  USICTL0 |= USIPE7 + USIPE6 + USIPE5 + USIMST + USISWRST;
 
-  USICKCTL |= USISSEL_2;                // /1 SMCLK. Anything but SCLK is possible (SPI mode)
+  USICKCTL |= USIDIV_0 | USISSEL_2;     // /1 SMCLK. Anything but SCLK is possible (SPI mode)
   
   USICTL0 &= ~USISWRST;                 // USI released for operation
   
@@ -103,7 +108,8 @@ Deassert CS_.
     USICNT = 8;                           // Dummy read
     while (!(USICTL1 & USIIFG)) {}        // Wait for completion
     P2OUT |= CS_;                         // Deassert CS_
-    
+
+  for (;;) {   
     // Read chip status
     P2OUT &= ~CS_;                        // Assert CS_
     USICTL0 |= USIOE;                     // SDO enable
@@ -132,16 +138,7 @@ Deassert CS_.
     }
     P2OUT |= CS_;                         // Deassert CS_
 
-  for (;;) {
-    // BREAK
+    __no_operation();
     __no_operation();
   }
 }
-
-/*
-// USI interrupt service routine
-#pragma vector=USI_VECTOR
-__interrupt void universal_serial_interface(void)
-{
-}
-*/
