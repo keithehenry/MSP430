@@ -28,7 +28,7 @@ This version of the code doesn't use interrupts, for debuging the interpolation.
 
 
 //================ Timer DAC ==================
-void TDAC_Init(void) {
+inline void TDAC_Init(void) {
   // Select TA0.2 to P1.4
   P1DIR |= BIT4;
   P1SEL |= BIT4;
@@ -45,8 +45,7 @@ void TDAC_Init(void) {
   TA0CCTL2 = OUTMOD_7;                           // Set at CCR0, reset at CCR2
 }
 
-void TDAC_Play(void) {
-  char * pAudio;
+inline void TDAC_Play(char * pAudio, unsigned long AudioSize) {
 
   unsigned int uAudSam2;
   unsigned int uAudX4;
@@ -54,14 +53,12 @@ void TDAC_Play(void) {
   signed int sAudDiff;
   unsigned long i;
   
-  pAudio = (char *) &audio;                       // pAudio is the pointer to array audio
-    
   uAudSam2 = *(pAudio++);                         // Read initial audio sample as next
   uAudX4   = (uAudSam2 << 2) + 2;                 // Compute first sample times four, plus rounding bit
   
-  TA0CCTL0 = 0;                                   // Clear existing CCIFG
+  TA0CCTL0 &= ~CCIFG;                             // Clear existing CCIFG
   
-  for (i = SizeOfAudio-1; i != 0; i--) {          // [Need a least two sample for interpolation]
+  for (i = AudioSize-1; i != 0; i--) {            // [Need a least two sample for interpolation]
     uAudSam1 = uAudSam2;                          // Save previous next into current
     uAudSam2 = *(pAudio++);                       // Read new next sample
     sAudDiff = uAudSam2 - uAudSam1;               // Compute signed difference
@@ -70,25 +67,25 @@ void TDAC_Play(void) {
     TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
     uAudX4 += sAudDiff;                           // Compute next
     while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 = 0;                                 //  Ditto
+    TA0CCTL0 &= ~CCIFG;                           //  Ditto
 
     // 2
     TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
     uAudX4 += sAudDiff;                           // Compute next
     while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 = 0;                                 //  Ditto
+    TA0CCTL0 &= ~CCIFG;                           //  Ditto
     
     // 3
     TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
     uAudX4 += sAudDiff;                           // Compute next
     while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 = 0;                                 //  Ditto
+    TA0CCTL0 &= ~CCIFG;                           //  Ditto
 
     // 4
     TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
     uAudX4 += sAudDiff;                           // Compute next
     while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 = 0;                                 //  Ditto
+    TA0CCTL0 &= ~CCIFG;                           //  Ditto
   }
   TA0CCR2 = uAudX4 >> 2;                          // Load PWM final sample
 }
@@ -105,7 +102,7 @@ void main(void) {
   TDAC_Init();                                   // Init (but don't start) Timer DAC
 
   for (;;) {
-    TDAC_Play();
+    TDAC_Play((char *) &audio, SizeOfAudio);
     __delay_cycles(6000000);
   }
 }
@@ -125,4 +122,159 @@ __interrupt void TIMER0_A0_ISR(void)
   }  
 
 }
+
+main:
+    0efae: 0a 12                     PUSH    R10
+    0efb0: 09 12                     PUSH    R9
+    0efb2: 08 12                     PUSH    R8
+    0efb4: 07 12                     PUSH    R7
+    0efb6: 06 12                     PUSH    R6
+    0efb8: 05 12                     PUSH    R5
+    0efba: b2 40 80 5a 20 01         MOV     #0x5a80, &0x0120
+    0efc0: d2 42 f8 10 56 00         MOV.B   &0x10f8, &0x0056
+    0efc6: d2 42 f9 10 57 00         MOV.B   &0x10f9, &0x0057
+    0efcc: e2 43 58 00               MOV.B   #0x0002, &0x0058
+    0efd0: f2 d0 10 00 22 00         BIS.B   #0x0010, &0x0022
+    0efd6: f2 d0 10 00 26 00         BIS.B   #0x0010, &0x0026
+    0efdc: f2 d0 10 00 41 00         BIS.B   #0x0010, &0x0041
+    0efe2: b2 40 10 02 60 01         MOV     #0x0210, &0x0160
+    0efe8: b2 40 ff 00 72 01         MOV     #0x00ff, &0x0172
+    0efee: b2 40 10 00 62 01         MOV     #0x0010, &0x0162
+    0eff4: b2 40 80 00 76 01         MOV     #0x0080, &0x0176
+    0effa: b2 40 e0 00 66 01         MOV     #0x00e0, &0x0166
+    0f000: 35 40 02 02               MOV     #0x0202, R5
+    0f004: 76 40 80 00               MOV.B   #0x0080, R6
+    0f008: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f00c: 0a 45                     MOV     R5,     R10
+    0f00e: 0c 46                     MOV     R6,     R12
+    0f010: 38 40 01 e0               MOV     #0xe001, R8
+    0f014: 77 48                     MOV.B   @R8+,   R7
+    0f016: 09 47                     MOV     R7,     R9
+    0f018: 09 8c                     SUB     R12,    R9
+    0f01a: 0c 4a                     MOV     R10,    R12
+    0f01c: b0 12 d8 f0               CALL    #0xf0d8
+    0f020: 82 4c 76 01               MOV     R12,    &0x0176
+    0f024: 0a 59                     ADD     R9,     R10
+    0f026: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f02a: fd 27                     JZ      0xf026
+    0f02c: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f030: 0c 4a                     MOV     R10,    R12
+    0f032: b0 12 d8 f0               CALL    #0xf0d8
+    0f036: 82 4c 76 01               MOV     R12,    &0x0176
+    0f03a: 0a 59                     ADD     R9,     R10
+    0f03c: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f040: fd 27                     JZ      0xf03c
+    0f042: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f046: 0c 4a                     MOV     R10,    R12
+    0f048: b0 12 d8 f0               CALL    #0xf0d8
+    0f04c: 82 4c 76 01               MOV     R12,    &0x0176
+    0f050: 0a 59                     ADD     R9,     R10
+    0f052: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f056: fd 27                     JZ      0xf052
+    0f058: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f05c: 0c 4a                     MOV     R10,    R12
+    0f05e: b0 12 d8 f0               CALL    #0xf0d8
+    0f062: 82 4c 76 01               MOV     R12,    &0x0176
+    0f066: 0a 59                     ADD     R9,     R10
+    0f068: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f06c: fd 27                     JZ      0xf068
+    0f06e: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f072: 0c 47                     MOV     R7,     R12
+    0f074: 38 90 a0 ef               CMP     #__FRAME_END__, R8
+    0f078: cd 23                     JNZ     0xf014
+    0f07a: 0c 4a                     MOV     R10,    R12
+    0f07c: b0 12 d8 f0               CALL    #0xf0d8
+    0f080: 82 4c 76 01               MOV     R12,    &0x0176
+    0f084: 0d 12                     PUSH    R13
+    0f086: 0e 12                     PUSH    R14
+    0f088: 3d 40 5c 23               MOV     #0x235c, R13
+    0f08c: 3e 40 16 00               MOV     #0x0016, R14
+    0f090: 1d 83                     DEC     R13
+    0f092: 0e 73                     SBC     R14
+    0f094: fd 23                     JNZ     0xf090
+    0f096: 0d 93                     TST     R13
+    0f098: fb 23                     JNZ     0xf090
+    0f09a: 3e 41                     POP     R14
+    0f09c: 3d 41                     POP     R13
+    0f09e: 00 3c                     JMP     0xf0a0
+    0f0a0: 30 40 08 f0               BR      #0xf008
+
+main:
+    0efae: 0a 12                     PUSH    R10
+    0efb0: 09 12                     PUSH    R9
+    0efb2: 08 12                     PUSH    R8
+    0efb4: 07 12                     PUSH    R7
+    0efb6: 06 12                     PUSH    R6
+    0efb8: 05 12                     PUSH    R5
+    0efba: 04 12                     PUSH    R4
+    0efbc: b2 40 80 5a 20 01         MOV     #0x5a80, &0x0120
+    0efc2: d2 42 f8 10 56 00         MOV.B   &0x10f8, &0x0056
+    0efc8: d2 42 f9 10 57 00         MOV.B   &0x10f9, &0x0057
+    0efce: e2 43 58 00               MOV.B   #0x0002, &0x0058
+    0efd2: f2 d0 10 00 22 00         BIS.B   #0x0010, &0x0022
+    0efd8: f2 d0 10 00 26 00         BIS.B   #0x0010, &0x0026
+    0efde: f2 d0 10 00 41 00         BIS.B   #0x0010, &0x0041
+    0efe4: b2 40 10 02 60 01         MOV     #0x0210, &0x0160
+    0efea: b2 40 ff 00 72 01         MOV     #0x00ff, &0x0172
+    0eff0: b2 40 10 00 62 01         MOV     #0x0010, &0x0162
+    0eff6: b2 40 80 00 76 01         MOV     #0x0080, &0x0176
+    0effc: b2 40 e0 00 66 01         MOV     #0x00e0, &0x0166
+    0f002: 48 43                     CLR.B   R8
+    0f004: 34 40 02 02               MOV     #0x0202, R4
+    0f008: 75 40 80 00               MOV.B   #0x0080, R5
+    0f00c: 82 48 62 01               MOV     R8,     &0x0162
+    0f010: 0a 44                     MOV     R4,     R10
+    0f012: 0c 45                     MOV     R5,     R12
+    0f014: 37 40 01 e0               MOV     #0xe001, R7
+    0f018: 76 47                     MOV.B   @R7+,   R6
+    0f01a: 09 46                     MOV     R6,     R9
+    0f01c: 09 8c                     SUB     R12,    R9
+    0f01e: 0c 4a                     MOV     R10,    R12
+    0f020: b0 12 dc f0               CALL    #0xf0dc
+    0f024: 82 4c 76 01               MOV     R12,    &0x0176
+    0f028: 0a 59                     ADD     R9,     R10
+    0f02a: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f02e: fd 27                     JZ      0xf02a
+    0f030: 82 48 62 01               MOV     R8,     &0x0162
+    0f034: 0c 4a                     MOV     R10,    R12
+    0f036: b0 12 dc f0               CALL    #0xf0dc
+    0f03a: 82 4c 76 01               MOV     R12,    &0x0176
+    0f03e: 0a 59                     ADD     R9,     R10
+    0f040: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f044: fd 27                     JZ      0xf040
+    0f046: 82 48 62 01               MOV     R8,     &0x0162
+    0f04a: 0c 4a                     MOV     R10,    R12
+    0f04c: b0 12 dc f0               CALL    #0xf0dc
+    0f050: 82 4c 76 01               MOV     R12,    &0x0176
+    0f054: 0a 59                     ADD     R9,     R10
+    0f056: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f05a: fd 27                     JZ      0xf056
+    0f05c: 82 48 62 01               MOV     R8,     &0x0162
+    0f060: 0c 4a                     MOV     R10,    R12
+    0f062: b0 12 dc f0               CALL    #0xf0dc
+    0f066: 82 4c 76 01               MOV     R12,    &0x0176
+    0f06a: 0a 59                     ADD     R9,     R10
+    0f06c: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f070: fd 27                     JZ      0xf06c
+    0f072: 82 48 62 01               MOV     R8,     &0x0162
+    0f076: 0c 46                     MOV     R6,     R12
+    0f078: 37 90 a0 ef               CMP     #__FRAME_END__, R7
+    0f07c: cd 23                     JNZ     0xf018
+    0f07e: 0c 4a                     MOV     R10,    R12
+    0f080: b0 12 dc f0               CALL    #0xf0dc
+    0f084: 82 4c 76 01               MOV     R12,    &0x0176
+    0f088: 0d 12                     PUSH    R13
+    0f08a: 0e 12                     PUSH    R14
+    0f08c: 3d 40 5c 23               MOV     #0x235c, R13
+    0f090: 3e 40 16 00               MOV     #0x0016, R14
+    0f094: 1d 83                     DEC     R13
+    0f096: 0e 73                     SBC     R14
+    0f098: fd 23                     JNZ     0xf094
+    0f09a: 0d 93                     TST     R13
+    0f09c: fb 23                     JNZ     0xf094
+    0f09e: 3e 41                     POP     R14
+    0f0a0: 3d 41                     POP     R13
+    0f0a2: 00 3c                     JMP     0xf0a4
+    0f0a4: 30 40 0c f0               BR      #0xf00c
+
  **/
