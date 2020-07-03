@@ -47,47 +47,50 @@ inline void TDAC_Init(void) {
 
 inline void TDAC_Play(char * pAudio, unsigned long AudioSize) {
 
+  unsigned long i;
+  unsigned int uAudSam1;
   unsigned int uAudSam2;
   unsigned int uAudX4;
-  unsigned int uAudSam1;
   signed int sAudDiff;
-  unsigned long i;
+  unsigned int uNxSam0, uNxSam1, uNxSam2, uNxSam3;
   
   uAudSam2 = *(pAudio++);                         // Read initial audio sample as next
   uAudX4   = (uAudSam2 << 2) + 2;                 // Compute first sample times four, plus rounding bit
-  
-  TA0CCTL0 &= ~CCIFG;                             // Clear existing CCIFG
   
   for (i = AudioSize-1; i != 0; i--) {            // [Need a least two sample for interpolation]
     uAudSam1 = uAudSam2;                          // Save previous next into current
     uAudSam2 = *(pAudio++);                       // Read new next sample
     sAudDiff = uAudSam2 - uAudSam1;               // Compute signed difference
 
-    // 0 - TA0CCR2 to match current uAudSam1
-    TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
-    uAudX4 += sAudDiff;                           // Compute next
-    while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 &= ~CCIFG;                           //  Ditto
-
+    uNxSam0 = uAudSam1;                           // Sample 0. Same as uAudX4 >> 2.
+    uAudX4 += sAudDiff;                           // Add 1/4 the difference
+    uNxSam1 = uAudX4 >> 2;                        // Sample 1
+    uAudX4 += sAudDiff;                           // Again
+    uNxSam2 = uAudX4 >> 2;                        // Sample 2
+    uAudX4 += sAudDiff;                           // Again
+    uNxSam3 = uAudX4 >> 2;                        // Sample 3
+    uAudX4 += sAudDiff;                           // Add 1/4 the difference
+    // 0
+    TA0CCTL0 &= ~CCIFG;                           // Wait for end of current duty cycle
+    while (!(TA0CCTL0 & CCIFG));                  //  no GIE style
+    TA0CCR2 = uNxSam0;                            // Load PWM interpolated sample
+    // 1
+    TA0CCTL0 &= ~CCIFG;                           // Wait for end of current duty cycle
+    while (!(TA0CCTL0 & CCIFG));                  //  no GIE style
+    TA0CCR2 = uNxSam1;                            // Load PWM interpolated sample
     // 2
-    TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
-    uAudX4 += sAudDiff;                           // Compute next
-    while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 &= ~CCIFG;                           //  Ditto
-    
+    TA0CCTL0 &= ~CCIFG;                           // Wait for end of current duty cycle
+    while (!(TA0CCTL0 & CCIFG));                  //  no GIE style
+    TA0CCR2 = uNxSam2;                            // Load PWM interpolated sample
     // 3
-    TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
-    uAudX4 += sAudDiff;                           // Compute next
-    while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 &= ~CCIFG;                           //  Ditto
-
-    // 4
-    TA0CCR2 = uAudX4 >> 2;                        // Load PWM interpolated sample
-    uAudX4 += sAudDiff;                           // Compute next
-    while (!(TA0CCTL0 & CCIFG));                  // Wait, no GIE style
-    TA0CCTL0 &= ~CCIFG;                           //  Ditto
+    TA0CCTL0 &= ~CCIFG;                           // Wait for end of current duty cycle
+    while (!(TA0CCTL0 & CCIFG));                  //  no GIE style
+    TA0CCR2 = uNxSam3;                            // Load PWM interpolated sample
   }
-  TA0CCR2 = uAudX4 >> 2;                          // Load PWM final sample
+  // Final
+  TA0CCTL0 &= ~CCIFG;                             // Wait for end of current duty cycle
+  while (!(TA0CCTL0 & CCIFG));                    //  no GIE style
+  TA0CCR2 = uAudSam2;                             // Load final sample. Same as uAudX4 >> 2.
 }
 //================ MAIN ==================
 void main(void) {
@@ -122,7 +125,83 @@ __interrupt void TIMER0_A0_ISR(void)
   }  
 
 }
+// Compute samples first. Samples stay in registers. Saves a few program words.
+main:
+    0efae: 0a 12                     PUSH    R10
+    0efb0: 09 12                     PUSH    R9
+    0efb2: 08 12                     PUSH    R8
+    0efb4: 07 12                     PUSH    R7
+    0efb6: 06 12                     PUSH    R6
+    0efb8: 05 12                     PUSH    R5
+    0efba: 04 12                     PUSH    R4
+    0efbc: b2 40 80 5a 20 01         MOV     #0x5a80, &0x0120
+    0efc2: d2 42 f8 10 56 00         MOV.B   &0x10f8, &0x0056
+    0efc8: d2 42 f9 10 57 00         MOV.B   &0x10f9, &0x0057
+    0efce: e2 43 58 00               MOV.B   #0x0002, &0x0058
+    0efd2: f2 d0 10 00 22 00         BIS.B   #0x0010, &0x0022
+    0efd8: f2 d0 10 00 26 00         BIS.B   #0x0010, &0x0026
+    0efde: f2 d0 10 00 41 00         BIS.B   #0x0010, &0x0041
+    0efe4: b2 40 10 02 60 01         MOV     #0x0210, &0x0160
+    0efea: b2 40 ff 00 72 01         MOV     #0x00ff, &0x0172
+    0eff0: b2 40 10 00 62 01         MOV     #0x0010, &0x0162
+    0eff6: b2 40 80 00 76 01         MOV     #0x0080, &0x0176
+    0effc: b2 40 e0 00 66 01         MOV     #0x00e0, &0x0166
+    0f002: 3a 40 02 02               MOV     #0x0202, R10
+    0f006: 76 40 80 00               MOV.B   #0x0080, R6
+    0f00a: 37 40 01 e0               MOV     #0xe001, R7
+    0f00e: 74 47                     MOV.B   @R7+,   R4
+    0f010: 09 44                     MOV     R4,     R9
+    0f012: 09 86                     SUB     R6,     R9
+    0f014: 0a 59                     ADD     R9,     R10
+    0f016: 0c 4a                     MOV     R10,    R12
+    0f018: b0 12 d4 f0               CALL    #0xf0d4
+    0f01c: 08 4c                     MOV     R12,    R8
+    0f01e: 0a 59                     ADD     R9,     R10
+    0f020: 0c 4a                     MOV     R10,    R12
+    0f022: b0 12 d4 f0               CALL    #0xf0d4
+    0f026: 05 4c                     MOV     R12,    R5
+    0f028: 0a 59                     ADD     R9,     R10
+    0f02a: 0c 4a                     MOV     R10,    R12
+    0f02c: b0 12 d4 f0               CALL    #0xf0d4
+    0f030: 0a 59                     ADD     R9,     R10
+    0f032: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f036: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f03a: fd 27                     JZ      0xf036
+    0f03c: 82 46 76 01               MOV     R6,     &0x0176
+    0f040: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f044: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f048: fd 27                     JZ      0xf044
+    0f04a: 82 48 76 01               MOV     R8,     &0x0176
+    0f04e: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f052: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f056: fd 27                     JZ      0xf052
+    0f058: 82 45 76 01               MOV     R5,     &0x0176
+    0f05c: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f060: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f064: fd 27                     JZ      0xf060
+    0f066: 82 4c 76 01               MOV     R12,    &0x0176
+    0f06a: 06 44                     MOV     R4,     R6
+    0f06c: 37 90 a0 ef               CMP     #__FRAME_END__, R7
+    0f070: ce 23                     JNZ     0xf00e
+    0f072: 92 c3 62 01               BIC     #0x0001, &0x0162
+    0f076: 92 b3 62 01               BIT     #0x0001, &0x0162
+    0f07a: fd 27                     JZ      0xf076
+    0f07c: 82 44 76 01               MOV     R4,     &0x0176
+    0f080: 0d 12                     PUSH    R13
+    0f082: 0e 12                     PUSH    R14
+    0f084: 3d 40 5c 23               MOV     #0x235c, R13
+    0f088: 3e 40 16 00               MOV     #0x0016, R14
+    0f08c: 1d 83                     DEC     R13
+    0f08e: 0e 73                     SBC     R14
+    0f090: fd 23                     JNZ     0xf08c
+    0f092: 0d 93                     TST     R13
+    0f094: fb 23                     JNZ     0xf08c
+    0f096: 3e 41                     POP     R14
+    0f098: 3d 41                     POP     R13
+    0f09a: 00 3c                     JMP     0xf09c
+    0f09c: 30 40 02 f0               BR      #0xf002
 
+// Interative approach
 main:
     0efae: 0a 12                     PUSH    R10
     0efb0: 09 12                     PUSH    R9
@@ -199,6 +278,7 @@ main:
     0f09e: 00 3c                     JMP     0xf0a0
     0f0a0: 30 40 08 f0               BR      #0xf008
 
+// Prior to using BIC for CCIFG
 main:
     0efae: 0a 12                     PUSH    R10
     0efb0: 09 12                     PUSH    R9
