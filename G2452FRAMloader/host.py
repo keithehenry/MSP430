@@ -2458,3 +2458,16 @@ def DumpChirp ():
 
     for i in range (nframes):
         print (hex(chirp[i]), end=",")
+
+
+def WelMonika ():
+    import wave
+    ifile = wave.open("welcome.wav", 'rb')
+    nframes = ifile.getnframes()
+    audio = ifile.readframes(nframes)
+    ifile.close()
+    print (nframes, hex(nframes))
+    str = "02000000" + bytes(audio).hex()
+    FTxfr ("06", 0)
+    FTxfr (str, 0)
+
